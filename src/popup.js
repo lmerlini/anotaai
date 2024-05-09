@@ -1,112 +1,136 @@
-'use strict';
-
 import './popup.css';
 
-(function() {
-  // We will make use of Storage API to get and store `count` value
-  // More information on Storage API can we found at
-  // https://developer.chrome.com/extensions/storage
+document.addEventListener('DOMContentLoaded', function () {
+  console.log('DOMContentLoaded event fired');
 
-  // To get storage access, we have to mention it in `permissions` property of manifest.json file
-  // More information on Permissions can we found at
-  // https://developer.chrome.com/extensions/declare_permissions
-  const counterStorage = {
-    get: cb => {
-      chrome.storage.sync.get(['count'], result => {
-        cb(result.count);
-      });
-    },
-    set: (value, cb) => {
-      chrome.storage.sync.set(
-        {
-          count: value,
-        },
-        () => {
-          cb();
-        }
-      );
-    },
-  };
+  const form = document.getElementById('noteForm');
+  const noteTitleInput = document.getElementById('noteTitle');
+  const noteContentInput = document.getElementById('noteContent');
+  const noteList = document.getElementById('noteList');
+  let editIndex = -1;
 
-  function setupCounter(initialValue = 0) {
-    document.getElementById('counter').innerHTML = initialValue;
+  // Função para exibir as notas atualizadas
+  function displayNotes() {
+    noteList.innerHTML = '';
+    chrome.storage.sync.get('notes', function (data) {
+      const notes = data.notes || [];
+      notes.forEach(function (note, index) {
+        const listItem = document.createElement('li');
+        listItem.innerHTML = `
+        
+          <div class="card">
+            <div class="card-content">
+              <p class="subtitle">${index+1} - ${note.title}</p>
+              <p contenteditable="true" class="content" id="content-${index}" style="heigth:40px">${note.content}</p>
 
-    document.getElementById('incrementBtn').addEventListener('click', () => {
-      updateCounter({
-        type: 'INCREMENT',
-      });
-    });
+              <footer class="card-footer">
+              <p class="card-footer-item">
+                <button class="button is-small is-success is-outlined" id="editBtn-${index}">
+                <span class="icon is-small">
+                  <i class="fas fa-edit"></i>
+                </span>
+              </button>
+              </p>
+              <p class="card-footer-item">
+              <button class="button is-small is-danger " id="deleteBtn-${index}">
+              <span class="icon is-small">
+                <i class="fas fa-times"></i>
+              </span>
+              </button>
+              </p>
+            </footer>              
+            </div>          
+          </div>  
+        `;
+        noteList.appendChild(listItem);
 
-    document.getElementById('decrementBtn').addEventListener('click', () => {
-      updateCounter({
-        type: 'DECREMENT',
-      });
-    });
-  }
-
-  function updateCounter({ type }) {
-    counterStorage.get(count => {
-      let newCount;
-
-      if (type === 'INCREMENT') {
-        newCount = count + 1;
-      } else if (type === 'DECREMENT') {
-        newCount = count - 1;
-      } else {
-        newCount = count;
-      }
-
-      counterStorage.set(newCount, () => {
-        document.getElementById('counter').innerHTML = newCount;
-
-        // Communicate with content script of
-        // active tab by sending a message
-        chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
-          const tab = tabs[0];
-
-          chrome.tabs.sendMessage(
-            tab.id,
-            {
-              type: 'COUNT',
-              payload: {
-                count: newCount,
-              },
-            },
-            response => {
-              console.log('Current count value passed to contentScript file');
-            }
-          );
+        document.getElementById(`editBtn-${index}`).addEventListener('click', function () {
+          editNote(index);
         });
+
+        document.getElementById(`deleteBtn-${index}`).addEventListener('click', function () {
+          deleteNote(index);
+        });
+
+        document.getElementById(`content-${index}`).addEventListener('input', function () {
+          updateContent(index, this.innerText);
+        });
+
       });
     });
   }
 
-  function restoreCounter() {
-    // Restore count value
-    counterStorage.get(count => {
-      if (typeof count === 'undefined') {
-        // Set counter value as 0
-        counterStorage.set(0, () => {
-          setupCounter(0);
-        });
-      } else {
-        setupCounter(count);
-      }
+  
+  function saveNote(title, content) {
+    chrome.storage.sync.get('notes', function (data) {
+      const notes = data.notes || [];
+      notes.push({ title, content });
+      chrome.storage.sync.set({ notes }, function () {
+        displayNotes(); // Atualiza o popup após salvar a nota
+      });
     });
   }
 
-  document.addEventListener('DOMContentLoaded', restoreCounter);
+  // depois dá pra remover essa fnc e colocar na update content
+  function updateNote(index, title, content) {
+    chrome.storage.sync.get('notes', function (data) {
+      const notes = data.notes || [];
+      notes[index] = { title, content };
+      chrome.storage.sync.set({ notes }, function () {
+        displayNotes(); // Atualiza o popup após atualizar a nota
+      });
+    });
+  }
 
-  // Communicate with background file by sending a message
-  chrome.runtime.sendMessage(
-    {
-      type: 'GREETINGS',
-      payload: {
-        message: 'Hello, my name is Pop. I am from Popup.',
-      },
-    },
-    response => {
-      console.log(response.message);
+  function updateContent(index, content) {
+    chrome.storage.sync.get('notes', function (data) {
+      const notes = data.notes || [];
+      notes[index].content = content;
+      chrome.storage.sync.set({ notes }, function () {
+        // Não é necessário chamar displayNotes() aqui, pois a nota já está sendo exibida
+      });
+    });
+  }
+
+  function editNote(index) {
+    chrome.storage.sync.get('notes', function (data) {
+      const notes = data.notes || [];
+      const { title, content } = notes[index];
+      noteTitleInput.value = title;
+      noteContentInput.value = content;
+      editIndex = index;
+    });
+  }
+
+  // Função para excluir uma nota
+  function deleteNote(index) {
+    chrome.storage.sync.get('notes', function (data) {
+      const notes = data.notes || [];
+      notes.splice(index, 1);
+      chrome.storage.sync.set({ notes }, function () {
+        displayNotes(); // Atualiza o popup após excluir a nota
+      });
+    });
+  }
+
+  // Adiciona um evento de escuta para o formulário de anotação
+  form.addEventListener('submit', function (event) {
+    event.preventDefault();
+    const title = noteTitleInput.value;
+    const content = noteContentInput.value;
+    if (title && content) {
+      if (editIndex !== -1) {
+        updateNote(editIndex, title, content);
+        editIndex = -1;
+      } else {
+        saveNote(title, content);
+      }
+      noteTitleInput.value = '';
+      noteContentInput.value = '';
     }
-  );
-})();
+  });
+
+  // Inicializa o popup exibindo as notas existentes
+  displayNotes();
+});
+
